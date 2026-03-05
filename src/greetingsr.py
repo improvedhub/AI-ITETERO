@@ -77,7 +77,7 @@ def handle_smalltalk(client: OpenAI, text: str) -> str | None:
             max_tokens=250
         )
 
-        answer = response.choices[0].message.content.strip().strip("'\"")
+        answer = (response.choices[0].message.content or "").strip().strip("'\"")
 
         # If OpenAI says it's not small talk, route to PDF pipeline
         if "NOT_SMALLTALK" in answer.upper():

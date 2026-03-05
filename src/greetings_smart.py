@@ -1,6 +1,7 @@
 # greetings.py - AI-Powered Smart Conversation Handler
 import os
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 _BOT_NAME = os.getenv("BOT_NAME", "Umufasha w'Itetero")
 
@@ -79,17 +80,18 @@ def handle_smalltalk(client: OpenAI, text: str) -> str | None:
     )
     
     try:
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": text},
+        ]
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": text}
-            ],
+            messages=messages,
             temperature=0.7,
             max_tokens=250
         )
         
-        answer = response.choices[0].message.content.strip()
+        answer = (response.choices[0].message.content or "").strip()
         
         # Remove quotes if AI added them
         answer = answer.strip("'\"")

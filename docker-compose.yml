@@ -1,0 +1,26 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-itetero-app
+    platform: linux/amd64
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      PORT: ${PORT:-8000}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      CHAT_MODEL: ${CHAT_MODEL:-gpt-4o-mini}
+      EMBED_MODEL: ${EMBED_MODEL:-text-embedding-3-large}
+      PDF_PATH: ${PDF_PATH:-}
+      FAISS_PATH: ${FAISS_PATH:-}
+      META_PATH: ${META_PATH:-}
+      SYN_PATH: ${SYN_PATH:-}
+      CHUNK_SIZE: ${CHUNK_SIZE:-500}
+      OVERLAP: ${OVERLAP:-100}
+      TOP_K: ${TOP_K:-10}
+      SCORE_THRESHOLD: ${SCORE_THRESHOLD:-0.1}
+      BOT_NAME: ${BOT_NAME:-Umufasha w'Itetero}
+      GREETINGS_PERSIST: ${GREETINGS_PERSIST:-0}
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped

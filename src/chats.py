@@ -5,6 +5,7 @@ import numpy as np
 from typing import List, Dict
 from dotenv import load_dotenv
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 # Add parent dir to path for imports
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -248,7 +249,7 @@ def is_parenting_related(client: OpenAI, question: str) -> bool:
         "Answer with ONLY 'YES' if the question is about ANY of these topics.\n"
         "Answer with ONLY 'NO' if about: children >6 years, weather, news, sports, politics, technology troubleshooting, or unrelated topics."
     )
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system},
         {"role": "user", "content": f"Is this question about parenting children 0-6 years, pregnancy, breastfeeding, or first aid?\n\nQuestion: {question}"},
     ]
@@ -259,7 +260,7 @@ def is_parenting_related(client: OpenAI, question: str) -> bool:
             temperature=0.0,
             max_tokens=10,
         )
-        answer = resp.choices[0].message.content.strip().upper()
+        answer = (resp.choices[0].message.content or "").strip().upper()
         return "YES" in answer
     except Exception:
         return False
@@ -274,7 +275,7 @@ def ask_llm_with_context(client: OpenAI, context: str, question: str) -> str:
         f"NIBA CONTEXT idafite igisubizo, subiza gusa uti: '{FALLBACK}'. "
         "Irinde gukabya cyangwa guhanga ibisubizo bidashingiye ku nyandiko."
     )
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system},
         {"role": "user", "content": f"CONTEXT:\n{context}\n\nIKIBAZO:\n{question}"},
     ]
@@ -283,7 +284,7 @@ def ask_llm_with_context(client: OpenAI, context: str, question: str) -> str:
         messages=messages,
         temperature=0.2,
     )
-    return resp.choices[0].message.content.strip()
+    return (resp.choices[0].message.content or "").strip()
 
 
 def ask_llm_general(client: OpenAI, question: str) -> str:
@@ -339,7 +340,7 @@ def ask_llm_general(client: OpenAI, question: str) -> str:
         "Keep answers concise, practical, and focused on children aged 0-6 years or pregnant/nursing mothers. "
         "If the question involves medical emergencies, always advise seeking immediate medical attention."
     )
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system},
         {"role": "user", "content": question},
     ]
@@ -348,8 +349,7 @@ def ask_llm_general(client: OpenAI, question: str) -> str:
         messages=messages,
         temperature=0.3,
     )
-    return resp.choices[0].message.content.strip()
-    return resp.choices[0].message.content.strip()
+    return (resp.choices[0].message.content or "").strip()
 
 
 # --------------- Init & public API ---------------
@@ -394,30 +394,36 @@ def get_response(question: str) -> str:
        - If question is NOT parenting-related, return "no information" message
     """
     _init_once()
+    client = _CLIENT
+    index = _INDEX
+    meta_rows = _META_ROWS
+    synonyms = _SYNONYMS
+    if client is None or index is None or meta_rows is None or synonyms is None:
+        return FALLBACK
 
     # Check for small talk first (greetings, emotions, daily life conversation)
     # AI-powered: uses OpenAI to intelligently detect and respond naturally
-    small = handle_smalltalk(_CLIENT, question)
+    small = handle_smalltalk(client, question)
     if small is not None:
         return small
 
     # Try to retrieve relevant chunks from PDFs
-    chunks, scores = retrieve(_CLIENT, _INDEX, _META_ROWS, question, _SYNONYMS)
+    chunks, scores = retrieve(client, index, meta_rows, question, synonyms)
     
     # If we found relevant chunks in PDFs, try to get answer from them
     pdf_answer = None
     if chunks and len(chunks) > 0:
         context = format_context(chunks)
-        pdf_answer = ask_llm_with_context(_CLIENT, context, question)
+        pdf_answer = ask_llm_with_context(client, context, question)
         
         # If the LLM found a real answer in the context (not the fallback message)
         if pdf_answer and pdf_answer != FALLBACK and len(pdf_answer) > 20:
             return pdf_answer
     
     # No good answer found in PDFs - check if question is parenting-related
-    if is_parenting_related(_CLIENT, question):
+    if is_parenting_related(client, question):
         # Question is about parenting (0-6 years), pregnancy, breastfeeding, or first aid - use OpenAI general knowledge
-        return ask_llm_general(_CLIENT, question)
+        return ask_llm_general(client, question)
     else:
         # Question is NOT about parenting - inform user
         return "Mbabarira, nta makuru mfite kuri iyi ngingo. Nshobora gufasha kubijanye n'uburere bw'abana bafite imyaka 0-6, inda, konsa, n'ubufasha bw'ibanze gusa."

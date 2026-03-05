@@ -1,0 +1,37 @@
+name: Itetero AI Bot Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test TCP to SSH
+        run: |
+          nc -vz ${{ secrets.SSH_HOST }} 22
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy files to server
+        run: |
+          rsync -avz --delete \
+            --exclude='node_modules' \
+            --exclude='.git' \
+            --exclude='.env' \
+            -e "ssh -i ~/.ssh/id_rsa" \
+            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/ai_bot
+
+      - name: Deploy with Docker
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "cd ~/ai_bot && sudo docker compose up -d --build"

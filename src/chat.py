@@ -5,6 +5,7 @@ import re
 import threading
 from pathlib import Path
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -91,13 +92,16 @@ def expand_question(question: str, client: OpenAI) -> list[str]:
         f"Ikibazo: {question}"
     )
     try:
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "user", "content": prompt},
+        ]
         resp = client.chat.completions.create(
             model=CHAT_MODEL,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.2,
             max_tokens=150,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = (resp.choices[0].message.content or "").strip()
         keywords = [
             w.strip().lower().strip(".,;:-*•")
             for w in raw.splitlines()
@@ -191,15 +195,16 @@ def _call_batch(batch_chunks, original_question, client, stop_event):
         if stop_event.is_set():
             return ""
         try:
+            messages: list[ChatCompletionMessageParam] = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ]
             resp = client.chat.completions.create(
                 model=CHAT_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": user_prompt},
-                ],
+                messages=messages,
                 temperature=0.0,
             )
-            text = resp.choices[0].message.content.strip()
+            text = (resp.choices[0].message.content or "").strip()
             return text if text != FALLBACK else ""
 
         except Exception as e:

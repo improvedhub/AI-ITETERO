@@ -7,6 +7,7 @@ RAG pipeline only processes real health questions.
 
 import re
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 # ---------------------------
 # Broad conversation detector
@@ -153,16 +154,17 @@ NTUVUGE KO URI AI.
 
 def get_smalltalk_response(question: str, client: OpenAI) -> str:
     try:
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": question},
+        ]
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": question},
-            ],
+            messages=messages,
             temperature=0.8,
             max_tokens=150,
         )
-        return resp.choices[0].message.content.strip()
+        return (resp.choices[0].message.content or "").strip()
     except Exception:
         return _canned_reply(question)
 
