@@ -10,7 +10,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# ⭐⭐⭐ THIS IS THE FIX - CORS Middleware ⭐⭐⭐
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows all origins (for development)

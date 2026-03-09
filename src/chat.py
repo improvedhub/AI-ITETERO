@@ -1,41 +1,45 @@
 import os
-import sys
-import time
 import re
+import sys
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+from dotenv import load_dotenv
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
-from dotenv import load_dotenv
-from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from config import CHAT_MODEL, DATA
+from utils import chunk_by_tokens, read_pdf_text
 
 # Add project root to sys.path if needed
 ROOT = Path(__file__).resolve().parent.parent
 if ROOT not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from utils import read_pdf_text, chunk_by_tokens
-from config import DATA, CHAT_MODEL, EMBED_MODEL
+
 try:
-    from .greetings import is_small_talk, get_smalltalk_response
+    from .greetings import get_smalltalk_response, is_small_talk
 except ImportError:
-    from greetings import is_small_talk, get_smalltalk_response
+    from greetings import get_smalltalk_response, is_small_talk
 
 # ---------------------------
 # Constants
 # ---------------------------
-FALLBACK         = "Munyihanganire, nta makuru mfite kuri iyi ngingo."
-MAX_CHUNK_BATCH  = 30
-MAX_WORKERS      = 2
-RETRY_ATTEMPTS   = 5
-RETRY_BASE_WAIT  = 2.0
-MIN_SCORE        = 0.08
-TOP_CHUNKS       = 90
+FALLBACK = "Munyihanganire, nta makuru mfite kuri iyi ngingo."
+MAX_CHUNK_BATCH = 30
+MAX_WORKERS = 2
+RETRY_ATTEMPTS = 5
+RETRY_BASE_WAIT = 2.0
+MIN_SCORE = 0.08
+TOP_CHUNKS = 90
 
 # ---------------------------
 # In-memory chunk cache
 # ---------------------------
 _cached_chunks = None
+
 
 def load_pdf_chunks():
     global _cached_chunks
@@ -50,8 +54,10 @@ def load_pdf_chunks():
         DATA / "all.pdf",
         DATA / "3.1 Play PG DRAFT 5 (V14.10.22) Kinyarwanda.pdf",
         DATA / "3.2 Play BR DRAFT 4 (V26.04.22) Kinyarwanda.pdf",
-        DATA / "4.1 Prenatal newborn postnatal care PG DRAFT 5 (V14.10.22) Kinyarwanda.pdf",
-        DATA / "4.2 Prenatal newborn postnatal care BR DRAFT 5 (V14.10.22) Kinyarwanda.pdf",
+        DATA
+        / "4.1 Prenatal newborn postnatal care PG DRAFT 5 (V14.10.22) Kinyarwanda.pdf",
+        DATA
+        / "4.2 Prenatal newborn postnatal care BR DRAFT 5 (V14.10.22) Kinyarwanda.pdf",
     ]
 
     all_chunks = []
@@ -67,11 +73,13 @@ def load_pdf_chunks():
                 continue
             for ch in chunk_by_tokens(txt, chunk_size=900, overlap=200):
                 if ch.strip():
-                    all_chunks.append({
-                        "source": pdf_path.name,
-                        "page":   page_no,
-                        "text":   ch,
-                    })
+                    all_chunks.append(
+                        {
+                            "source": pdf_path.name,
+                            "page": page_no,
+                            "text": ch,
+                        }
+                    )
 
     print(f"✅ Loaded {len(all_chunks)} chunks from PDFs.\n")
     _cached_chunks = all_chunks
@@ -81,6 +89,7 @@ def load_pdf_chunks():
 # ---------------------------
 # Step 1: Expand question into keywords
 # ---------------------------
+
 
 def expand_question(question: str, client: OpenAI) -> list[str]:
     prompt = (
@@ -108,9 +117,7 @@ def expand_question(question: str, client: OpenAI) -> list[str]:
             if w.strip() and len(w.strip()) > 2
         ]
         original_tokens = [
-            t.lower().strip(".,?!:;")
-            for t in question.split()
-            if len(t) > 2
+            t.lower().strip(".,?!:;") for t in question.split() if len(t) > 2
         ]
         all_keywords = list(dict.fromkeys(original_tokens + keywords))
         return all_keywords
@@ -123,11 +130,42 @@ def expand_question(question: str, client: OpenAI) -> list[str]:
 # ---------------------------
 
 STOP_WORDS = {
-    "ni", "mu", "ku", "wa", "na", "ko", "ngo", "ariko", "kandi",
-    "nta", "iki", "iyi", "uyu", "izi", "we", "ese", "ninde", "hari",
-    "aho", "ubwo", "nubwo", "kuko", "gusa", "cyane", "byo", "ibyo",
-    "abo", "aba", "ico", "izi", "nawe", "none", "mbere", "nyuma",
+    "ni",
+    "mu",
+    "ku",
+    "wa",
+    "na",
+    "ko",
+    "ngo",
+    "ariko",
+    "kandi",
+    "nta",
+    "iki",
+    "iyi",
+    "uyu",
+    "izi",
+    "we",
+    "ese",
+    "ninde",
+    "hari",
+    "aho",
+    "ubwo",
+    "nubwo",
+    "kuko",
+    "gusa",
+    "cyane",
+    "byo",
+    "ibyo",
+    "abo",
+    "aba",
+    "ico",
+    "izi",
+    "nawe",
+    "none",
+    "mbere",
+    "nyuma",
 }
+
 
 def _score_chunk(chunk_text: str, keywords: list[str]) -> float:
     if not keywords:
@@ -159,6 +197,7 @@ def filter_and_rank_chunks(chunks: list, keywords: list[str]) -> list:
 # Step 3: Batch call — strict PDF-only
 # ---------------------------
 
+
 def _parse_retry_after(error_msg: str) -> float:
     match = re.search(r"try again in (\d+(?:\.\d+)?)s", error_msg, re.IGNORECASE)
     return float(match.group(1)) + 0.5 if match else 0.0
@@ -169,8 +208,7 @@ def _call_batch(batch_chunks, original_question, client, stop_event):
         return ""
 
     context = "\n\n".join(
-        f"[{c['source']} - Urupapuro {c['page']}]\n{c['text']}"
-        for c in batch_chunks
+        f"[{c['source']} - Urupapuro {c['page']}]\n{c['text']}" for c in batch_chunks
     )
 
     system_prompt = (
@@ -197,7 +235,7 @@ def _call_batch(batch_chunks, original_question, client, stop_event):
         try:
             messages: list[ChatCompletionMessageParam] = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_prompt},
+                {"role": "user", "content": user_prompt},
             ]
             resp = client.chat.completions.create(
                 model=CHAT_MODEL,
@@ -211,7 +249,9 @@ def _call_batch(batch_chunks, original_question, client, stop_event):
             err = str(e)
             if "429" in err or "rate_limit" in err.lower():
                 sleep_for = _parse_retry_after(err) or wait
-                print(f"  ⏳ Rate limit — waiting {sleep_for:.1f}s (attempt {attempt+1}/{RETRY_ATTEMPTS})")
+                print(
+                    f"  ⏳ Rate limit — waiting {sleep_for:.1f}s (attempt {attempt + 1}/{RETRY_ATTEMPTS})"
+                )
                 time.sleep(sleep_for)
                 wait *= 2
             else:
@@ -225,6 +265,7 @@ def _call_batch(batch_chunks, original_question, client, stop_event):
 # Main orchestrator
 # ---------------------------
 
+
 def ask_openai(chunks, question, client):
     keywords = expand_question(question, client)
     relevant_chunks = filter_and_rank_chunks(chunks, keywords)
@@ -237,7 +278,7 @@ def ask_openai(chunks, question, client):
         for i in range(0, len(relevant_chunks), MAX_CHUNK_BATCH)
     ]
 
-    answers    = []
+    answers = []
     stop_event = threading.Event()
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -260,10 +301,11 @@ def ask_openai(chunks, question, client):
 # Public function for FastAPI
 # ---------------------------
 
+
 def get_response(question: str):
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
-    client  = OpenAI(api_key=api_key) if api_key else OpenAI()
+    client = OpenAI(api_key=api_key) if api_key else OpenAI()
 
     # ── Conversational layer (greetings, emotions, daily life) ───────────────
     if is_small_talk(question):
@@ -278,11 +320,12 @@ def get_response(question: str):
 # CLI interface
 # ---------------------------
 
+
 def main():
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
-    client  = OpenAI(api_key=api_key) if api_key else OpenAI()
-    chunks  = load_pdf_chunks()
+    client = OpenAI(api_key=api_key) if api_key else OpenAI()
+    chunks = load_pdf_chunks()
 
     print("Andika ikibazo cyawe (Ctrl+C gusohoka):")
     while True:
